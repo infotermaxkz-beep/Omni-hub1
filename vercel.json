@@ -1,5 +1,20 @@
 {
+  "crons": [
+    {
+      "path": "/api/cron/sync-users",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/kaspi",
+      "schedule": "*/5 * * * *"
+    }
+  ],
+  "functions": {
+    "api/b24/task-chain.js": { "maxDuration": 60 },
+    "api/cron/kaspi.js":     { "maxDuration": 30 },
+    "api/cron/sync-users.js":{ "maxDuration": 30 }
+  },
   "rewrites": [
-    { "source": "/((?!api).*)", "destination": "/index.html" }
+    { "source": "/((?!api|manifest.json).*)", "destination": "/index.html" }
   ]
 }
