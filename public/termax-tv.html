@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>ТЕРMAX · Цех · Задачи</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{
+      background:#07070f;color:#fff;
+      font-family:'Arial Black','Arial',sans-serif;
+      height:100dvh;overflow:hidden;
+    }
+    .header{
+      background:#0e0e1a;border-bottom:3px solid #e63946;
+      padding:10px 32px;display:flex;align-items:center;justify-content:space-between;
+    }
+    .logo{font-size:28px;font-weight:900;color:#e63946;letter-spacing:2px;}
+    .clock{font-size:26px;color:#555;font-family:monospace;}
+    .main{flex:1;display:flex;padding:32px 48px;gap:48px;height:calc(100dvh - 61px);overflow:hidden;}
+    .left{width:320px;display:flex;flex-direction:column;flex-shrink:0;}
+    .avatar{width:110px;height:110px;border-radius:50%;background:#e63946;
+      display:flex;align-items:center;justify-content:center;
+      font-size:44px;font-weight:900;margin-bottom:18px;}
+    .emp-name{font-size:44px;font-weight:900;line-height:1.1;margin-bottom:8px;word-break:break-word;}
+    .emp-dept{font-size:18px;color:#777;margin-bottom:28px;}
+    .next-wrap{margin-top:auto;border-top:1px solid #1a1a28;padding-top:14px;}
+    .next-label{font-size:11px;color:#333;letter-spacing:3px;text-transform:uppercase;margin-bottom:4px;}
+    .next-name{font-size:20px;color:#444;}
+    .right{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+    .tasks-label{font-size:12px;letter-spacing:3px;color:#e63946;text-transform:uppercase;margin-bottom:18px;font-weight:700;}
+    .task-item{display:flex;align-items:flex-start;gap:18px;padding:13px 0;border-bottom:1px solid #111;}
+    .task-num{font-size:18px;color:#2a2a3a;min-width:30px;font-family:monospace;}
+    .task-text{font-size:22px;line-height:1.35;flex:1;}
+    .task-high{color:#e63946;font-weight:700;}
+    .task-normal{color:#eee;}
+    .task-deadline{font-size:12px;color:#333;margin-top:4px;}
+    .no-tasks{font-size:26px;color:#1e1e2e;margin-top:24px;}
+    .progress-wrap{position:fixed;bottom:0;left:0;right:0;height:5px;background:#0e0e1a;}
+    .progress-bar{height:5px;background:#e63946;transition:width 0.2s linear;}
+    .overlay{
+      position:fixed;inset:0;background:rgba(230,57,70,0.96);
+      display:none;flex-direction:column;align-items:center;justify-content:center;
+      z-index:999;animation:pulse 0.4s ease;
+    }
+    .overlay.show{display:flex;}
+    .overlay-badge{font-size:15px;letter-spacing:5px;color:rgba(255,255,255,0.6);margin-bottom:18px;text-transform:uppercase;}
+    .overlay-name{font-size:68px;font-weight:900;text-align:center;margin-bottom:14px;}
+    .overlay-dept{font-size:22px;color:rgba(255,255,255,0.6);margin-bottom:22px;}
+    .overlay-task{font-size:30px;text-align:center;max-width:70%;line-height:1.4;
+      background:rgba(0,0,0,0.2);border-radius:12px;padding:16px 30px;}
+    @keyframes pulse{from{transform:scale(1.02);}to{transform:scale(1);}}
+    @keyframes fade{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+    .fade{animation:fade 0.35s ease;}
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">⚙ ТЕРMAX · ЦЕХ</div>
+  <div class="clock" id="clock">--:--:--</div>
+</div>
+
+<div class="main">
+  <div class="left">
+    <div class="avatar" id="avatar">?</div>
+    <div class="emp-name" id="empName">Загрузка…</div>
+    <div class="emp-dept" id="empDept"></div>
+    <div class="next-wrap">
+      <div class="next-label">Следующий</div>
+      <div class="next-name" id="nextName">—</div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="tasks-label">Активные задачи <span id="taskCount" style="color:#2a2a3a;"></span></div>
+    <div id="taskList"></div>
+  </div>
+</div>
+
+<div class="progress-wrap">
+  <div class="progress-bar" id="prog" style="width:0%"></div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="overlay-badge">📋 Новая задача</div>
+  <div class="overlay-name" id="ovName"></div>
+  <div class="overlay-dept" id="ovDept"></div>
+  <div class="overlay-task" id="ovTask"></div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════
+   НАСТРОЙКИ — уже заполнены для ТЕРMAX
+═══════════════════════════════════════ */
+const CFG = {
+  supabaseUrl:  'https://pudgmwgljqaioxkspkwj.supabase.co',
+  supabaseKey:  'sb_publishable_Qx48Xk-alFCA_UPYGQ-ntw_rsPNh4ip',
+  b24Webhook:   'https://tootmx.bitrix24.kz/rest/98/xx8dwokqi6r48mwu/',
+  omniApiBase:  'https://omni-hub1.vercel.app',   // ← твой Vercel URL
+  cycleSec:     120,   // секунд на одного сотрудника
+  notifySec:    8,     // секунд показ уведомления
+};
+
+const sb = supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey);
+
+/* ── Sound ── */
+function beep(){
+  try{
+    const a=new(window.AudioContext||window.webkitAudioContext)();
+    [[0,660],[0.3,660],[0.55,880]].forEach(([t,f])=>{
+      const o=a.createOscillator(),g=a.createGain();
+      o.connect(g);g.connect(a.destination);
+      o.frequency.value=f;o.type='sine';
+      g.gain.setValueAtTime(0.5,a.currentTime+t);
+      g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+t+0.28);
+      o.start(a.currentTime+t);o.stop(a.currentTime+t+0.3);
+    });
+  }catch(e){}
+}
+
+/* ── State ── */
+let emps=[], curIdx=0, cycleTimer=null, progressTimer=null, cycleStart=Date.now();
+const knownIds=new Set();
+
+/* ── Clock ── */
+setInterval(()=>{
+  document.getElementById('clock').textContent=
+    new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+},1000);
+
+/* ── Load employees ── */
+async function loadEmps(){
+  const{data}=await sb.from('b24_users').select('*').order('name');
+  if(data?.length) emps=data;
+}
+
+/* ── Load tasks ── */
+async function loadTasks(userId){
+  document.getElementById('taskList').innerHTML='<div style="color:#1e1e2e;font-size:18px;margin-top:16px">Загрузка…</div>';
+  try{
+    const r=await fetch(`${CFG.omniApiBase}/api/b24/tasks-active?userId=${userId}`);
+    const d=await r.json();
+    renderTasks(d.tasks||[]);
+  }catch(e){
+    document.getElementById('taskList').innerHTML='<div class="no-tasks">⚠ Нет связи</div>';
+  }
+}
+
+function renderTasks(tasks){
+  document.getElementById('taskCount').textContent=tasks.length?`· ${tasks.length}`:'';
+  if(!tasks.length){
+    document.getElementById('taskList').innerHTML='<div class="no-tasks">✓ Нет активных задач</div>';
+    return;
+  }
+  const html=tasks.slice(0,7).map((t,i)=>`
+    <div class="task-item fade">
+      <span class="task-num">${i+1}.</span>
+      <div style="flex:1">
+        <div class="task-text ${t.PRIORITY==='2'?'task-high':'task-normal'}">
+          ${t.TITLE}${t.PRIORITY==='2'?' 🔴':''}
+        </div>
+        ${t.DEADLINE?`<div class="task-deadline">Срок: ${new Date(t.DEADLINE).toLocaleDateString('ru',{day:'2-digit',month:'2-digit'})}</div>`:''}
+      </div>
+    </div>`).join('');
+  document.getElementById('taskList').innerHTML=html;
+  tasks.forEach(t=>knownIds.add(t.ID));
+}
+
+/* ── Show employee ── */
+function showEmp(idx){
+  if(!emps.length)return;
+  const e=emps[idx%emps.length];
+  const n=emps[(idx+1)%emps.length];
+  const ini=(e.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2);
+  document.getElementById('avatar').textContent=ini;
+  document.getElementById('empName').textContent=e.name||'—';
+  document.getElementById('empDept').textContent=e.dept||'';
+  document.getElementById('nextName').textContent=n?.name||'—';
+  loadTasks(e.id);
+}
+
+/* ── Cycle ── */
+function startCycle(){
+  showEmp(curIdx);
+  cycleStart=Date.now();
+  if(cycleTimer) clearInterval(cycleTimer);
+  cycleTimer=setInterval(()=>{
+    curIdx=(curIdx+1)%emps.length;
+    showEmp(curIdx);
+    cycleStart=Date.now();
+  },CFG.cycleSec*1000);
+}
+
+/* ── Progress bar ── */
+setInterval(()=>{
+  const pct=Math.min(100,((Date.now()-cycleStart)/(CFG.cycleSec*1000))*100);
+  document.getElementById('prog').style.width=pct+'%';
+},200);
+
+/* ── New task notification ── */
+function notify(empName,empDept,taskTitle){
+  beep();
+  document.getElementById('ovName').textContent=empName;
+  document.getElementById('ovDept').textContent=empDept||'';
+  document.getElementById('ovTask').textContent=taskTitle;
+  const ov=document.getElementById('overlay');
+  ov.classList.add('show');
+  setTimeout(()=>ov.classList.remove('show'),CFG.notifySec*1000);
+}
+
+/* ── Supabase Realtime ── */
+function subscribeRealtime(){
+  sb.channel('tv-chain')
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'task_chains'},payload=>{
+      const steps=payload.new.steps||[];
+      const first=steps[0];
+      if(!first?.assigneeId)return;
+      const emp=emps.find(e=>String(e.id)===String(first.assigneeId));
+      if(!emp)return;
+      notify(emp.name,emp.dept||'',first.title||'Новая задача');
+      const idx=emps.findIndex(e=>String(e.id)===String(first.assigneeId));
+      if(idx!==-1){curIdx=idx;startCycle();}
+    })
+    .subscribe();
+}
+
+/* ── Init ── */
+async function init(){
+  await loadEmps();
+  if(!emps.length){
+    document.getElementById('empName').textContent='Нет сотрудников';
+    document.getElementById('taskList').innerHTML='<div class="no-tasks">Запусти /api/cron/sync-users</div>';
+    return;
+  }
+  startCycle();
+  subscribeRealtime();
+}
+
+init();
+</script>
+</body>
+</html>

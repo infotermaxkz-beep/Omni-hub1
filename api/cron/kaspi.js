@@ -1,77 +1,80 @@
 /**
  * GET /api/cron/kaspi
- * Pulls new/updated orders from Kaspi Business API → saves to Supabase.
- * Set up on cron-job.org (free) to call this URL every 5 minutes.
+ * Pulls new/updated orders from Kaspi Seller API → Supabase → OmniHub
+ * Call every 5 min via cron-job.org
  *
- * Kaspi Seller API docs: https://kaspi.kz/mp/documentation
+ * Kaspi Seller API v2 docs: https://kaspi.kz/mp/documentation
  */
 import { getSupabase } from '../lib/supabase.js';
 
-const KASPI_API  = 'https://kaspi.kz/mp/api/v1';
-const STATUS_MAP = {
-  NEW:             'Новый заказ',
-  ACCEPTED_BY_MERCHANT: 'Принят магазином',
-  COMPLETED:       'Выполнен',
-  CANCELLED:       'Отменён',
-  CANCELLING:      'Отмена в процессе',
-  RETURN_REQUESTED:'Запрос возврата',
-  RETURNED:        'Возврат',
+const KASPI_BASE = 'https://kaspi.kz/mp/api/v2';
+
+const STATUS_LABEL = {
+  NEW:                  'Новый',
+  ACCEPTED_BY_MERCHANT: 'Принят',
+  COMPLETED:            'Выполнен',
+  CANCELLED:            'Отменён',
+  CANCELLING:           'Отмена',
+  RETURN_REQUESTED:     'Возврат запрошен',
+  RETURNED:             'Возврат',
 };
+
+async function kaspiGet(path, apiKey, merchantId) {
+  const url = `${KASPI_BASE}${path}`;
+  const r = await fetch(url, {
+    headers: {
+      'X-Auth-Token':  apiKey,
+      'Content-Type':  'application/json',
+    },
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`Kaspi ${r.status}: ${text.slice(0, 200)}`);
+  }
+  return r.json();
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  const apiKey      = process.env.KASPI_API_KEY;
-  const merchantId  = process.env.KASPI_MERCHANT_ID;
-  const supabase    = getSupabase();
+  const apiKey     = process.env.KASPI_API_KEY;
+  const merchantId = process.env.KASPI_MERCHANT_ID;
+  const supabase   = getSupabase();
 
-  // ── MOCK MODE (no Kaspi key yet) ─────────────────────────
   if (!apiKey || !merchantId) {
-    return res.json({
-      ok: true,
-      mode: 'mock',
-      message: 'KASPI_API_KEY / KASPI_MERCHANT_ID не заданы — добавь в Vercel env vars',
-      newOrders: 0,
-    });
+    return res.json({ ok: false, error: 'KASPI_API_KEY / KASPI_MERCHANT_ID не заданы' });
   }
 
   if (!supabase) {
-    return res.json({ ok: false, error: 'Supabase not configured' });
+    return res.json({ ok: false, error: 'Supabase не подключён' });
   }
 
+  let newCount = 0;
+  const errors = [];
+
   try {
-    // Fetch NEW orders from Kaspi
-    const kaspiRes = await fetch(
-      `${KASPI_API}/orders?page[number]=0&page[size]=50&filter[orders][state]=NEW,ACCEPTED_BY_MERCHANT`,
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'X-Auth-Token':  apiKey,
-          'Content-Type':  'application/json',
-        },
-      }
+    // Fetch orders: NEW + ACCEPTED_BY_MERCHANT
+    const data = await kaspiGet(
+      `/merchants/${merchantId}/orders?` +
+      `page[number]=0&page[size]=50` +
+      `&filter[orders][state]=NEW,ACCEPTED_BY_MERCHANT` +
+      `&filter[orders][creationDate][ge]=${Date.now() - 7 * 24 * 3600 * 1000}`,
+      apiKey,
+      merchantId
     );
 
-    if (!kaspiRes.ok) {
-      const errText = await kaspiRes.text();
-      throw new Error(`Kaspi API ${kaspiRes.status}: ${errText}`);
-    }
-
-    const kaspiData = await kaspiRes.json();
-    const orders = kaspiData.data || [];
-    let newCount = 0;
+    const orders = data.data || [];
 
     for (const order of orders) {
-      const attr     = order.attributes || order;
-      const orderId  = String(order.id || attr.code);
-      const customer = attr.customer || {};
-      const status   = attr.status || 'NEW';
-      const amount   = attr.totalPrice || attr.price || 0;
-      const name     = customer.name || customer.firstName || 'Клиент Kaspi';
-      const phone    = customer.cellPhone || customer.phone || '';
-      const items    = attr.entries || attr.orderItems || [];
+      const attr   = order.attributes || {};
+      const orderId = String(order.id);
+      const status  = attr.status || 'NEW';
+      const amount  = attr.totalPrice || 0;
+      const name    = attr.customer?.name || 'Покупатель';
+      const phone   = attr.customer?.cellPhone || '';
+      const entries = attr.entries || [];
 
-      // Check if already exists
+      // ── Already exists? ───────────────────────────────
       const { data: existing } = await supabase
         .from('conversations')
         .select('id, kaspi_order_status')
@@ -81,33 +84,27 @@ export default async function handler(req, res) {
       if (existing) {
         // Update status if changed
         if (existing.kaspi_order_status !== status) {
-          await supabase
-            .from('conversations')
-            .update({
-              kaspi_order_status: status,
-              last_message: `Статус заказа: ${STATUS_MAP[status] || status}`,
-              last_message_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existing.id);
+          await supabase.from('conversations').update({
+            kaspi_order_status: status,
+            last_message: `Статус: ${STATUS_LABEL[status] || status}`,
+            last_message_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }).eq('id', existing.id);
 
-          // Add system message about status change
           await supabase.from('messages').insert({
             conversation_id: existing.id,
             from_type: 'system',
-            text: `Статус Kaspi изменён: ${STATUS_MAP[status] || status}`,
+            text: `Kaspi статус → ${STATUS_LABEL[status] || status}`,
           });
 
-          // If return requested — create B24 notification
-          if (status === 'RETURN_REQUESTED' || status === 'RETURNED') {
-            const webhook = process.env.BITRIX24_WEBHOOK_URL;
-            if (webhook) {
-              const adminIds = ['1', '42', '98'];
-              const msg = `⚠️ ВОЗВРАТ KASPI\nЗаказ: #${orderId}\nКлиент: ${name}\nСумма: ${amount} ₸\nСтатус: ${STATUS_MAP[status]}`;
-              await Promise.all(adminIds.map(uid =>
-                fetch(`${webhook}im.notify.system.add.json`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+          // Return notifications
+          if (['RETURN_REQUESTED','RETURNED'].includes(status)) {
+            const wh = process.env.BITRIX24_WEBHOOK_URL;
+            if (wh) {
+              const msg = `⚠️ ВОЗВРАТ KASPI\nЗаказ: #${orderId}\nКлиент: ${name}\nСумма: ${amount} ₸`;
+              await Promise.all(['1','42','98'].map(uid =>
+                fetch(`${wh}im.notify.system.add.json`, {
+                  method: 'POST', headers: {'Content-Type':'application/json'},
                   body: JSON.stringify({ USER_ID: uid, MESSAGE: msg }),
                 })
               ));
@@ -117,16 +114,22 @@ export default async function handler(req, res) {
         continue;
       }
 
-      // Create new conversation
+      // ── New order ─────────────────────────────────────
+      const items = entries.map(e =>
+        `${e.offer?.name || 'Товар'} × ${e.quantity || 1}`
+      ).join(', ');
+
       const { data: conv, error: convErr } = await supabase
         .from('conversations')
         .insert({
           channel:             'kaspi',
           client_name:         name,
           client_phone:        phone,
-          last_message:        `Новый заказ #${orderId} · ${amount} ₸`,
+          last_message:        `Заказ #${orderId} · ${Number(amount).toLocaleString('ru')} ₸`,
           unread_count:        1,
           status:              'open',
+          funnel_stage:        'Оплата',
+          deal_amount:         amount,
           kaspi_order_id:      orderId,
           kaspi_order_status:  status,
           kaspi_order_amount:  amount,
@@ -134,16 +137,16 @@ export default async function handler(req, res) {
         .select('id')
         .single();
 
-      if (convErr) throw convErr;
+      if (convErr) { errors.push(convErr.message); continue; }
 
-      // Add system message
+      // System message
       await supabase.from('messages').insert({
         conversation_id: conv.id,
         from_type: 'system',
-        text: `Новый заказ #${orderId} · ${amount} ₸ · ${STATUS_MAP[status] || status}`,
+        text: `Новый заказ #${orderId} · ${Number(amount).toLocaleString('ru')} ₸\n${items}`,
       });
 
-      // Save order details
+      // Kaspi orders detail table
       await supabase.from('kaspi_orders').upsert({
         id:              orderId,
         conversation_id: conv.id,
@@ -151,19 +154,17 @@ export default async function handler(req, res) {
         amount,
         customer_name:   name,
         customer_phone:  phone,
-        items:           JSON.stringify(items),
+        items:           JSON.stringify(entries),
         kaspi_created:   attr.creationDate ? new Date(attr.creationDate).toISOString() : null,
       });
 
-      // Notify B24 admins about new order
-      const webhook = process.env.BITRIX24_WEBHOOK_URL;
-      if (webhook) {
-        const adminIds = ['1', '42', '98'];
-        const msg = `🛒 Новый заказ Kaspi!\n#${orderId}\nКлиент: ${name}\nСумма: ${amount} ₸`;
-        await Promise.all(adminIds.map(uid =>
-          fetch(`${webhook}im.notify.system.add.json`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+      // Notify all 3 admins in B24
+      const wh = process.env.BITRIX24_WEBHOOK_URL;
+      if (wh) {
+        const msg = `🛒 Новый заказ Kaspi!\n#${orderId}\nКлиент: ${name}${phone?'\n'+phone:''}\nСумма: ${Number(amount).toLocaleString('ru')} ₸\n${items}`;
+        await Promise.all(['1','42','98'].map(uid =>
+          fetch(`${wh}im.notify.system.add.json`, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
             body: JSON.stringify({ USER_ID: uid, MESSAGE: msg }),
           })
         ));
@@ -172,7 +173,13 @@ export default async function handler(req, res) {
       newCount++;
     }
 
-    res.json({ ok: true, total: orders.length, newOrders: newCount });
+    res.json({
+      ok: true,
+      total:     orders.length,
+      newOrders: newCount,
+      errors:    errors.length ? errors : undefined,
+    });
+
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

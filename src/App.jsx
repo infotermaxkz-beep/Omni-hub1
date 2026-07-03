@@ -19,9 +19,7 @@ const ADMIN_USERS = [
   { id:"98", name:"Пименов Алексей",  dept:"Менеджмент", color:"#16a34a" },
 ];
 
-/* ─── No mock data — real data only from Supabase ── */
-const MOCK_CONVS = [];
-const MOCK_MSGS  = {};
+
 
 const TEMPLATES = [
   { name:"Приветствие",    txt:"Здравствуйте! Спасибо за обращение. Чем можем помочь?",             chs:["whatsapp","instagram","kaspi"] },
@@ -57,7 +55,7 @@ const STATUS_KASPI = {
 /* ─── Helpers ────────────────────────────────────── */
 const initials  = (n="") => n.split(" ").map(w=>w[0]).join("").substring(0,2).toUpperCase();
 const getTomorrow = () => { const d=new Date(); d.setDate(d.getDate()+1); return d.toISOString().split("T")[0]; };
-const newStep   = () => ({ id:Date.now()+Math.random(), assigneeId:"", title:"", desc:"", deadline:getTomorrow(), priority:"1", files:[] });
+const newStep   = () => ({ id:Date.now()+Math.random(), assigneeId:"", title:"", desc:"", deadline:getTomorrow(), priority:"1", files:[], projectId:"" });
 const fmtTime   = (iso) => { try { return new Date(iso).toLocaleTimeString("ru",{hour:"2-digit",minute:"2-digit"}); } catch{ return ""; } };
 const fmtSize   = (b) => b < 1048576 ? (b/1024).toFixed(0)+" КБ" : (b/1048576).toFixed(1)+" МБ";
 
@@ -155,37 +153,76 @@ const FileZone = ({ files, onChange, max=5 }) => {
   );
 };
 
-/* ─── Admin Login ────────────────────────────────── */
-const AdminLogin = ({ onLogin }) => (
-  <div style={{height:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#f0f2ff,#f5f5f7)"}}>
-    <div style={{background:"#fff",borderRadius:20,padding:"40px 36px",width:380,boxShadow:"0 8px 40px rgba(0,0,0,.10)"}}>
-      <div style={{textAlign:"center",marginBottom:28}}>
-        <div style={{fontSize:36,marginBottom:8}}>⚡</div>
-        <div style={{fontSize:22,fontWeight:800,color:"#111",letterSpacing:"-0.5px"}}>OmniHub KZ</div>
-        <div style={{fontSize:12,color:"#aaa",marginTop:4}}>tootmx.bitrix24.kz · 24/7</div>
+/* ─── Admin Login (with password) ────────────────── */
+const AdminLogin = ({ onLogin }) => {
+  const [picked,  setPicked]  = useState(null);
+  const [pw,      setPw]      = useState("");
+  const [err,     setErr]     = useState("");
+  const [busy,    setBusy]    = useState(false);
+
+  const tryLogin = async (a, password) => {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminId:a.id,password})});
+      const d = await r.json();
+      if (d.ok) { onLogin(a); } else { setErr(d.error||"Неверный пароль"); }
+    } catch { setErr("Ошибка сети, попробуйте снова"); }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{height:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#f0f2ff,#f5f5f7)"}}>
+      <div style={{background:"#fff",borderRadius:20,padding:"40px 36px",width:380,boxShadow:"0 8px 40px rgba(0,0,0,.10)"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontSize:36,marginBottom:8}}>⚡</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#111",letterSpacing:"-0.5px"}}>OmniHub KZ</div>
+          <div style={{fontSize:12,color:"#aaa",marginTop:4}}>tootmx.bitrix24.kz · 24/7</div>
+        </div>
+
+        {!picked ? (
+          <>
+            <div style={{fontSize:13,fontWeight:600,color:"#555",marginBottom:12,textAlign:"center"}}>Кто работает с системой?</div>
+            {ADMIN_USERS.map(a=>(
+              <button key={a.id} onClick={()=>setPicked(a)}
+                onMouseEnter={e=>{e.currentTarget.style.background="#f0f2ff";e.currentTarget.style.borderColor=a.color;}}
+                onMouseLeave={e=>{e.currentTarget.style.background="#f8f9ff";e.currentTarget.style.borderColor="#e8eaf0";}}
+                style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"13px 16px",background:"#f8f9ff",border:"1.5px solid #e8eaf0",borderRadius:12,cursor:"pointer",marginBottom:10,textAlign:"left",transition:"all .15s"}}>
+                <div style={{width:40,height:40,borderRadius:"50%",background:a.color+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:a.color,flexShrink:0}}>{initials(a.name)}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14,fontWeight:700,color:"#111"}}>{a.name}</div>
+                  <div style={{fontSize:11,color:"#888"}}>ID: {a.id} · {a.dept}</div>
+                </div>
+                <span style={{fontSize:18,color:"#ccc"}}>→</span>
+              </button>
+            ))}
+            <div style={{textAlign:"center",fontSize:11,color:"#ccc",marginTop:14}}>Доступ только для 3 ответственных</div>
+          </>
+        ) : (
+          <>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,background:"#f8f9ff",padding:"10px 14px",borderRadius:10}}>
+              <div style={{width:34,height:34,borderRadius:"50%",background:picked.color+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:picked.color}}>{initials(picked.name)}</div>
+              <div style={{fontSize:14,fontWeight:700,color:"#111"}}>{picked.name}</div>
+              <button onClick={()=>{setPicked(null);setPw("");setErr("");}} style={{marginLeft:"auto",background:"none",border:"none",color:"#aaa",cursor:"pointer",fontSize:12}}>Сменить</button>
+            </div>
+            <div style={{fontSize:12,fontWeight:600,color:"#666",marginBottom:6}}>Пароль</div>
+            <input type="password" autoFocus value={pw} onChange={e=>{setPw(e.target.value);setErr("");}}
+              onKeyDown={e=>e.key==="Enter"&&!busy&&tryLogin(picked,pw)}
+              placeholder="••••••••"
+              style={{width:"100%",border:`1.5px solid ${err?"#fca5a5":"#e0e0e8"}`,borderRadius:8,padding:"10px 12px",fontSize:14,boxSizing:"border-box",marginBottom:8,outline:"none"}}/>
+            {err && <div style={{fontSize:12,color:"#dc2626",marginBottom:8}}>{err}</div>}
+            <button onClick={()=>tryLogin(picked,pw)} disabled={busy}
+              style={{width:"100%",padding:"11px 0",background:picked.color,color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,opacity:busy?0.7:1}}>
+              {busy?"Проверяем…":"Войти"}
+            </button>
+          </>
+        )}
       </div>
-      <div style={{fontSize:13,fontWeight:600,color:"#555",marginBottom:12,textAlign:"center"}}>Кто работает с системой?</div>
-      {ADMIN_USERS.map(a=>(
-        <button key={a.id} onClick={()=>onLogin(a)}
-          onMouseEnter={e=>{e.currentTarget.style.background="#f0f2ff";e.currentTarget.style.borderColor=a.color;}}
-          onMouseLeave={e=>{e.currentTarget.style.background="#f8f9ff";e.currentTarget.style.borderColor="#e8eaf0";}}
-          style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"13px 16px",background:"#f8f9ff",border:"1.5px solid #e8eaf0",borderRadius:12,cursor:"pointer",marginBottom:10,textAlign:"left",transition:"all .15s"}}>
-          <div style={{width:40,height:40,borderRadius:"50%",background:a.color+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:a.color,flexShrink:0}}>{initials(a.name)}</div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:14,fontWeight:700,color:"#111"}}>{a.name}</div>
-            <div style={{fontSize:11,color:"#888"}}>ID: {a.id} · {a.dept}</div>
-          </div>
-          <span style={{fontSize:18,color:"#ccc"}}>→</span>
-        </button>
-      ))}
-      <div style={{textAlign:"center",fontSize:11,color:"#ccc",marginTop:14}}>Доступ только для 3 ответственных</div>
     </div>
-  </div>
-);
+  );
+};
 
 /* ─── Task Step ──────────────────────────────────── */
-const TaskStep = ({ step, idx, total, workers, onChange, onRemove }) => {
-  const all = [...ADMIN_USERS, ...workers];
+const TaskStep = ({ step, idx, total, workers, workersTotal, onRefreshWorkers, projects, onChange, onRemove }) => {
   const updateFiles = (files) => onChange("files", files);
   return (
     <div style={{background:"#fff",border:"1.5px solid #e8eaf0",borderRadius:12,padding:14,position:"relative"}}>
@@ -200,12 +237,15 @@ const TaskStep = ({ step, idx, total, workers, onChange, onRemove }) => {
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
         <div>
-          <div style={{fontSize:10,fontWeight:600,color:"#666",marginBottom:3}}>Кому назначить</div>
+          <div style={{fontSize:10,fontWeight:600,color:"#666",marginBottom:3,display:"flex",justifyContent:"space-between"}}>
+            <span>Кому назначить</span>
+            <button type="button" onClick={onRefreshWorkers} title="Обновить список из B24" style={{background:"none",border:"none",color:"#3d4de0",cursor:"pointer",fontSize:10,padding:0}}>🔄 обновить</button>
+          </div>
           <select value={step.assigneeId} onChange={e=>onChange("assigneeId",e.target.value)}
             style={{width:"100%",border:`1.5px solid ${step.assigneeId?"#3d4de0":"#fcd34d"}`,borderRadius:6,padding:"6px 8px",fontSize:12,outline:"none"}}>
             <option value="">— Выбрать сотрудника —</option>
             <optgroup label="Ответственные">{ADMIN_USERS.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</optgroup>
-            <optgroup label="Сотрудники B24">{workers.map(u=><option key={u.id} value={u.id}>{u.name} · {u.dept}</option>)}</optgroup>
+            <optgroup label={`Сотрудники B24 (${workers.length}${workersTotal?` из ${workersTotal}`:""})`}>{workers.map(u=><option key={u.id} value={u.id}>{u.name}{u.dept?` · ${u.dept}`:""}</option>)}</optgroup>
           </select>
         </div>
         <div>
@@ -214,6 +254,16 @@ const TaskStep = ({ step, idx, total, workers, onChange, onRemove }) => {
             style={{width:"100%",border:"1.5px solid #e0e0e8",borderRadius:6,padding:"6px 8px",fontSize:12,outline:"none"}}/>
         </div>
       </div>
+      {projects?.length>0 && (
+        <div style={{marginBottom:8}}>
+          <div style={{fontSize:10,fontWeight:600,color:"#666",marginBottom:3}}>Проект B24 (необязательно)</div>
+          <select value={step.projectId||""} onChange={e=>onChange("projectId",e.target.value)}
+            style={{width:"100%",border:"1.5px solid #e0e0e8",borderRadius:6,padding:"6px 8px",fontSize:12,outline:"none"}}>
+            <option value="">— Без проекта —</option>
+            {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      )}
       <div style={{marginBottom:8}}>
         <div style={{fontSize:10,fontWeight:600,color:"#666",marginBottom:3}}>Что нужно сделать</div>
         <input value={step.title} onChange={e=>onChange("title",e.target.value)} placeholder="Краткое название задачи…"
@@ -233,13 +283,53 @@ const TaskStep = ({ step, idx, total, workers, onChange, onRemove }) => {
           </label>
         ))}
       </div>
+      <div style={{fontSize:10,color:"#888",marginBottom:8,background:"#f8f9ff",padding:"5px 9px",borderRadius:6}}>
+        Постановщик задачи в B24: <b style={{color:"#3d4de0"}}>Сулейманов Наиль</b> (директор)
+      </div>
+
+      {/* Checklist — конструктор как в Bitrix24 */}
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:10,fontWeight:600,color:"#666",marginBottom:6}}>📋 Чеклист</div>
+        {(step.checklist||[]).map((item,ci)=>(
+          <div key={ci} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+            <input type="checkbox" checked={item.done} onChange={()=>{
+              const upd=(step.checklist||[]).map((x,i)=>i===ci?{...x,done:!x.done}:x);
+              onChange("checklist",upd);
+            }} style={{accentColor:"#3d4de0",flexShrink:0,width:14,height:14}}/>
+            <input
+              autoFocus={ci===(step.checklist||[]).length-1}
+              value={item.text}
+              placeholder={`Пункт ${ci+1}…`}
+              onChange={e=>{
+                const upd=(step.checklist||[]).map((x,i)=>i===ci?{...x,text:e.target.value}:x);
+                onChange("checklist",upd);
+              }}
+              onKeyDown={e=>{
+                if(e.key==="Enter"){ e.preventDefault(); onChange("checklist",[...(step.checklist||[]),{text:"",done:false}]); }
+                if(e.key==="Backspace"&&item.text===""&&(step.checklist||[]).length>1){
+                  e.preventDefault();
+                  onChange("checklist",(step.checklist||[]).filter((_,i)=>i!==ci));
+                }
+              }}
+              style={{flex:1,border:"none",borderBottom:"1px solid #e5e7eb",fontSize:12,padding:"3px 4px",outline:"none",textDecoration:item.done?"line-through":"none",color:item.done?"#aaa":"#333",background:"transparent"}}
+            />
+            <button onClick={()=>onChange("checklist",(step.checklist||[]).filter((_,i)=>i!==ci))}
+              style={{background:"none",border:"none",color:"#ccc",cursor:"pointer",fontSize:15,padding:"0 2px",flexShrink:0,lineHeight:1}}>×</button>
+          </div>
+        ))}
+        <button onClick={()=>onChange("checklist",[...(step.checklist||[]),{text:"",done:false}])}
+          style={{fontSize:11,color:"#3d4de0",background:"none",border:"none",cursor:"pointer",padding:"4px 0",display:"flex",alignItems:"center",gap:4}}>
+          <span style={{fontSize:16,lineHeight:1}}>+</span> Добавить пункт
+        </button>
+      </div>
+
       <FileZone files={step.files||[]} onChange={updateFiles}/>
     </div>
   );
 };
 
 /* ─── B24 Panel ──────────────────────────────────── */
-const B24Panel = ({ conv, admin, workers, onToast }) => {
+const B24Panel = ({ conv, admin, workers, workersTotal, onRefreshWorkers, onToast }) => {
   const [chain,        setChain]       = useState([newStep()]);
   const [loading,      setLoading]     = useState(false);
   const [launched,     setLaunched]    = useState(null);
@@ -247,6 +337,11 @@ const B24Panel = ({ conv, admin, workers, onToast }) => {
   const [returnOpen,   setReturnOpen]  = useState(false);
   const [returnReason, setReturnReason]= useState("");
   const [amount,       setAmount]      = useState(conv.kaspi_order_amount ? String(conv.kaspi_order_amount) : "");
+  const [projects,     setProjects]    = useState([]);
+
+  useEffect(()=>{
+    fetch("/api/b24/projects").then(r=>r.json()).then(d=>{ if(d.projects?.length) setProjects(d.projects); }).catch(()=>{});
+  },[]);
 
   const lastMsg = "Обращение через "+CN[conv.channel]||"";
   const upd = (idx,f,v) => setChain(prev=>prev.map((s,i)=>i===idx?{...s,[f]:v}:s));
@@ -257,20 +352,25 @@ const B24Panel = ({ conv, admin, workers, onToast }) => {
     try {
       const r = await fetch("/api/b24/task-chain",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          tasks: chain.map(s=>({assigneeId:s.assigneeId,title:s.title,desc:s.desc,deadline:s.deadline,priority:s.priority,files:(s.files||[]).map(f=>({name:f.name,base64:f.base64,type:f.type}))})),
+          tasks: chain.map(s=>({assigneeId:s.assigneeId,title:s.title,desc:s.desc,deadline:s.deadline,priority:s.priority,projectId:s.projectId||null,files:(s.files||[]).map(f=>({name:f.name,base64:f.base64,type:f.type}))})),
           clientName:conv.client_name, channel:conv.channel,
           lastMessage:lastMsg, kaspiOrderId:conv.kaspi_order_id||null,
           adminId:admin.id, createCRM:true,
         })
       });
       const d = await r.json();
+      if (!r.ok) {
+        onToast({type:"error",message:"❌ Не удалось создать задачу: "+(d.error||"неизвестная ошибка")});
+        setLoading(false);
+        return;
+      }
       setLaunched(d);
-      // Save task chain to Supabase
       if (supabase && conv.id && !String(conv.id).startsWith("mock")) {
         await supabase.from("task_chains").insert({conversation_id:Number(conv.id),b24_task_ids:d.taskIds,b24_lead_id:d.leadId,created_by:admin.id,steps:chain.map(s=>({title:s.title,assigneeId:s.assigneeId}))});
       }
-      onToast({type:"success",message:d.configured?`✅ Запущено в B24! ${chain.length} задач${chain.length>1?"и":""}. Лид #${d.leadId}`:`✅ Тест-режим: ${chain.length} шагов`,urls:d.taskUrls?.map((u,i)=>({label:`Шаг ${i+1}: ${chain[i]?.title}`,url:u}))});
-    } catch(e){onToast({type:"error",message:"Ошибка: "+e.message});}
+      const warnMsg = d.warnings?.length ? ` (⚠️ ${d.warnings.length} предупр.: ${d.warnings[0]})` : "";
+      onToast({type:"success",message:d.configured?`✅ Запущено в B24! ${chain.length} задач${chain.length>1?"и":""}. Лид #${d.leadId}${warnMsg}`:`✅ Создано (B24 не подключён — режим без интеграции)`,urls:d.taskUrls?.map((u,i)=>({label:`Шаг ${i+1}: ${chain[i]?.title}`,url:u}))});
+    } catch(e){onToast({type:"error",message:"❌ Ошибка сети: "+e.message});}
     setLoading(false);
   };
 
@@ -280,8 +380,8 @@ const B24Panel = ({ conv, admin, workers, onToast }) => {
       const r=await fetch("/api/b24/deal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({clientName:conv.client_name,channel:conv.channel,amount:amount+" ₸",leadId:launched?.leadId,contactId:launched?.contactId,adminId:admin.id})});
       const d=await r.json();
       setDealDone(true);
-      if(supabase&&conv.id&&!String(conv.id).startsWith("mock")) await supabase.from("conversations").update({status:"closed",b24_deal_id:String(d.dealId||"")}).eq("id",Number(conv.id));
-      onToast({type:"success",message:d.configured?`🏆 Сделка закрыта! Deal #${d.dealId}`:"🏆 Сделка закрыта (тест)",urls:d.dealUrl?[{label:"Открыть в B24",url:d.dealUrl}]:[]});
+      if(supabase&&conv.id&&!String(conv.id).startsWith("mock")) await supabase.from("conversations").update({status:"closed",funnel_stage:"Завершён",deal_amount:Number(amount)||null,b24_deal_id:String(d.dealId||"")}).eq("id",Number(conv.id));
+      onToast({type:"success",message:d.configured?`🏆 Сделка закрыта! Deal #${d.dealId}`:"🏆 Сделка закрыта (B24 не подключён)",urls:d.dealUrl?[{label:"Открыть в B24",url:d.dealUrl}]:[]});
     } catch(e){onToast({type:"error",message:"Ошибка: "+e.message});}
     setLoading(false);
   };
@@ -316,7 +416,7 @@ const B24Panel = ({ conv, admin, workers, onToast }) => {
       <div style={{padding:"12px 14px"}}>
         {chain.map((step,idx)=>(
           <div key={step.id}>
-            <TaskStep step={step} idx={idx} total={chain.length} workers={workers}
+            <TaskStep step={step} idx={idx} total={chain.length} workers={workers} workersTotal={workersTotal} onRefreshWorkers={onRefreshWorkers} projects={projects}
               onChange={(f,v)=>upd(idx,f,v)}
               onRemove={()=>setChain(prev=>prev.filter((_,i)=>i!==idx))}/>
             {idx<chain.length-1&&(
@@ -358,6 +458,117 @@ const B24Panel = ({ conv, admin, workers, onToast }) => {
 };
 
 /* ════════════════════ MAIN APP ═══════════════════ */
+/* ─── Standalone Task Creator ────────────────────── */
+function StandaloneTaskCreator({ admin, workers, workersTotal, onRefreshWorkers, onToast }) {
+  const [chain,     setChain]    = useState([newStep()]);
+  const [projects,  setProjects] = useState([]);
+  const [loading,   setLoading]  = useState(false);
+  const [recentTasks,setRecentTasks] = useState([]);
+
+  useEffect(()=>{
+    fetch("/api/b24/projects").then(r=>r.json()).then(d=>{ if(d.projects?.length) setProjects(d.projects); }).catch(()=>{});
+    if(supabase) {
+      supabase.from("task_chains").select("*").order("created_at",{ascending:false}).limit(10)
+        .then(({data})=>{ if(data) setRecentTasks(data); });
+    }
+  },[]);
+
+  const upd = (idx,f,v) => setChain(prev=>prev.map((s,i)=>i===idx?{...s,[f]:v}:s));
+
+  const createTasks = async () => {
+    if (chain.some(s=>!s.assigneeId||!s.title)) return onToast({type:"warn",message:"⚠️ Заполните исполнителя и задачу"});
+    setLoading(true);
+    try {
+      const r = await fetch("/api/b24/task-chain",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          tasks: chain.map(s=>({assigneeId:s.assigneeId,title:s.title,desc:s.desc,deadline:s.deadline,priority:s.priority,projectId:s.projectId||null,checklist:s.checklist||[],files:(s.files||[]).map(f=>({name:f.name,base64:f.base64,type:f.type}))})),
+          adminId:admin.id, createCRM:false,
+        })
+      });
+      const d = await r.json();
+      if(!r.ok) { onToast({type:"error",message:"❌ "+( d.error||"Ошибка")}); setLoading(false); return; }
+
+      if(supabase) {
+        const {data:saved} = await supabase.from("task_chains").insert({b24_task_ids:d.taskIds,b24_lead_id:null,created_by:admin.id,steps:chain.map(s=>({title:s.title,assigneeId:s.assigneeId}))}).select().single();
+        if(saved) setRecentTasks(prev=>[saved,...prev.slice(0,9)]);
+      }
+
+      onToast({type:"success",message:`✅ Создано ${chain.length} задач${chain.length>1?"и":""} в Bitrix24`,urls:d.taskUrls?.map((u,i)=>({label:`Шаг ${i+1}: ${chain[i]?.title}`,url:u}))});
+      setChain([newStep()]);
+    } catch(e){ onToast({type:"error",message:"❌ "+e.message}); }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+      {/* Left — creator */}
+      <div style={{flex:1,overflowY:"auto",padding:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+          <div>
+            <div style={{fontSize:17,fontWeight:700,color:"#111"}}>Создать задачу в Bitrix24</div>
+            <div style={{fontSize:12,color:"#888",marginTop:2}}>Без привязки к чату или заказу</div>
+          </div>
+          <a href="/tv" target="_blank" style={{background:"#0a0a0f",color:"#e63946",padding:"7px 14px",borderRadius:8,fontSize:12,fontWeight:700,textDecoration:"none"}}>
+            📺 ТВ-экран цеха →
+          </a>
+        </div>
+
+        {chain.map((step,idx)=>(
+          <div key={step.id}>
+            <TaskStep step={step} idx={idx} total={chain.length} workers={workers} workersTotal={workersTotal} onRefreshWorkers={onRefreshWorkers} projects={projects}
+              onChange={(f,v)=>upd(idx,f,v)}
+              onRemove={()=>setChain(prev=>prev.filter((_,i)=>i!==idx))}/>
+            {idx<chain.length-1&&(
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0"}}>
+                <div style={{flex:1,height:1.5,background:"#e0e4f0"}}/>
+                <span style={{fontSize:9,background:"#eff3ff",color:"#3d4de0",padding:"3px 10px",borderRadius:10,fontWeight:700}}>↓ после выполнения шага {idx+1}</span>
+                <div style={{flex:1,height:1.5,background:"#e0e4f0"}}/>
+              </div>
+            )}
+          </div>
+        ))}
+
+        <button onClick={()=>setChain(prev=>[...prev,newStep()])} style={{width:"100%",marginTop:10,padding:"9px",border:"2px dashed #3d4de0",borderRadius:8,background:"#eff3ff",color:"#3d4de0",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          + Добавить следующий шаг
+        </button>
+
+        <button onClick={createTasks} disabled={loading} style={{width:"100%",marginTop:10,padding:"12px",background:"#3d4de0",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:14,fontWeight:700,opacity:loading?0.7:1}}>
+          {loading?"Создаём в Bitrix24…":`🚀 Создать задач${chain.length>1?"и":""} в Bitrix24 (${chain.length} шаг${chain.length>1?"а":""})`}
+        </button>
+      </div>
+
+      {/* Right — recent tasks */}
+      <div style={{width:300,background:"#fff",borderLeft:"1px solid #e8e8ec",overflowY:"auto",flexShrink:0}}>
+        <div style={{padding:"14px 16px",borderBottom:"1px solid #e8e8ec",fontSize:13,fontWeight:600,color:"#111"}}>
+          Последние задачи
+        </div>
+        {recentTasks.length===0&&<div style={{padding:"20px 16px",fontSize:12,color:"#aaa",textAlign:"center"}}>Ещё нет созданных задач</div>}
+        {recentTasks.map((tc,i)=>(
+          <div key={i} style={{padding:"10px 14px",borderBottom:"1px solid #f0f0f4"}}>
+            <div style={{fontSize:11,color:"#888",marginBottom:4}}>{new Date(tc.created_at).toLocaleDateString("ru",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>
+            {(tc.steps||[]).map((s,j)=>(
+              <div key={j} style={{fontSize:12,color:"#333",marginBottom:3,display:"flex",gap:6,alignItems:"flex-start"}}>
+                <span style={{color:"#3d4de0",fontWeight:700,flexShrink:0}}>{j+1}.</span>
+                <span>{s.title}</span>
+              </div>
+            ))}
+            {tc.b24_task_ids?.length>0&&(
+              <div style={{marginTop:6,display:"flex",gap:4,flexWrap:"wrap"}}>
+                {tc.b24_task_ids.map((id,j)=>(
+                  <a key={j} href={`https://tootmx.bitrix24.kz/company/personal/user/42/tasks/task/view/${id}/`} target="_blank" rel="noreferrer"
+                    style={{fontSize:10,color:"#3d4de0",background:"#eff3ff",padding:"2px 8px",borderRadius:4,textDecoration:"none"}}>
+                    Задача #{id}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function OmniHub() {
   const [admin, setAdmin] = useState(()=>{try{return JSON.parse(sessionStorage.getItem("omni_admin"));}catch{return null;}});
   const login  = a => { sessionStorage.setItem("omni_admin",JSON.stringify(a)); setAdmin(a); };
@@ -376,15 +587,10 @@ function MainApp({ admin, onLogout }) {
   const [tmplOpen, setTmplOpen]= useState(false);
   const [b24Open,  setB24Open] = useState(false);
   const [workers,  setWorkers] = useState([]);
+  const [workersTotal, setWorkersTotal] = useState(0);
   const [toast,    setToast]   = useState(null);
-  const [cards,    setCards]    = useState([]);
-
-
-
-
-
-
-
+  const [loading,  setLoading] = useState(true);
+  const [drag,     setDrag]    = useState(null);
 
   const msgsEnd = useRef(null);
 
@@ -398,8 +604,8 @@ function MainApp({ admin, onLogout }) {
     try {
       const r=await fetch("/api/conversations"); const d=await r.json();
       if(d.data?.length){ setConvs(d.data); if(!cur) setCur(d.data[0]); }
-      else { setConvs(MOCK_CONVS); if(!cur) setCur(MOCK_CONVS[0]); }
-    } catch{ setConvs(MOCK_CONVS); if(!cur) setCur(MOCK_CONVS[0]); }
+      else { setConvs([]); }
+    } catch{ setConvs([]); }
     setLoading(false);
   }, []);
 
@@ -413,13 +619,30 @@ function MainApp({ admin, onLogout }) {
     try {
       const r=await fetch(`/api/conversations/messages?convId=${convId}`); const d=await r.json();
       if(d.data) setMsgs(prev=>({...prev,[convId]:d.data}));
-    } catch{ if(MOCK_MSGS[convId]) setMsgs(prev=>({...prev,[convId]:MOCK_MSGS[convId]})); }
+    } catch{ setMsgs(prev=>({...prev,[convId]:[]})); }
   }, []);
 
-  /* ── Load workers ── */
-  useEffect(()=>{
-    fetch("/api/b24/users").then(r=>r.json()).then(d=>{ if(d.workers?.length) setWorkers(d.workers); }).catch(()=>{});
-  },[]);
+  /* ── Load workers (with refresh capability) ── */
+  const loadWorkers = useCallback(async () => {
+    try {
+      const r = await fetch("/api/b24/users");
+      const d = await r.json();
+      setWorkers(d.workers||[]);
+      setWorkersTotal(d.total||0);
+    } catch {}
+  }, []);
+  useEffect(()=>{ loadWorkers(); },[loadWorkers]);
+
+  const refreshWorkers = async () => {
+    setToast({type:"warn",message:"🔄 Синхронизируем сотрудников с Bitrix24…"});
+    try {
+      await fetch("/api/cron/sync-users");
+      await loadWorkers();
+      setToast({type:"success",message:"✅ Список сотрудников обновлён"});
+    } catch(e) {
+      setToast({type:"error",message:"Ошибка синхронизации: "+e.message});
+    }
+  };
 
   /* ── Initial load ── */
   useEffect(()=>{ loadConvs(); },[loadConvs]);
@@ -477,9 +700,17 @@ function MainApp({ admin, onLogout }) {
     setConvs(prev=>prev.map(c=>c.id===cur.id?{...c,last_message:text,last_message_at:ts}:c));
   };
 
+  const moveFunnelStage = async (convId, stage) => {
+    setConvs(prev=>prev.map(c=>c.id===convId?{...c,funnel_stage:stage}:c));
+    if (supabase && !String(convId).startsWith("mock")) {
+      await supabase.from("conversations").update({funnel_stage:stage, status: stage==="Завершён"?"closed":"open"}).eq("id", Number(convId));
+    }
+  };
+
   const chTmpls   = TEMPLATES.filter(t=>t.chs.includes(cur?.channel));
-  const totalRev  = cards.filter(c=>c.stage==="Завершён").reduce((a,c)=>a+parseInt(c.amount.replace(/\D/g,"")),0);
-  const TABS = [{id:"chats",label:"Чаты",badge:totalUnread},{id:"templates",label:"Шаблоны"},{id:"analytics",label:"Аналитика"},{id:"funnel",label:"Воронка"}];
+  const dealConvs = convs.filter(c=>c.funnel_stage);
+  const totalRev  = dealConvs.filter(c=>c.funnel_stage==="Завершён").reduce((a,c)=>a+(Number(c.deal_amount||c.kaspi_order_amount)||0),0);
+  const TABS = [{id:"chats",label:"Чаты",badge:totalUnread},{id:"tasks",label:"Задачи"},{id:"templates",label:"Шаблоны"},{id:"analytics",label:"Аналитика"},{id:"funnel",label:"Воронка"},{id:"cameras",label:"Камеры"}];
 
   return (
     <div style={{fontFamily:"system-ui,sans-serif",background:"#f5f5f7",height:"100dvh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
@@ -530,7 +761,7 @@ function MainApp({ admin, onLogout }) {
                     </div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{display:"flex",justifyContent:"space-between"}}>
-                        <span style={{fontSize:13,fontWeight:600,color:"#111",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:130}}>{c.client_name}</span>
+                        <span style={{fontSize:13,fontWeight:600,color:"#111",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:130}}>{c.client_name}{c.channel_account&&<span style={{color:"#aaa",fontWeight:400}}> ({c.channel_account})</span>}</span>
                         <span style={{fontSize:10,color:"#aaa",flexShrink:0}}>{fmtTime(c.last_message_at)}</span>
                       </div>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:2}}>
@@ -559,7 +790,7 @@ function MainApp({ admin, onLogout }) {
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <div style={{width:34,height:34,borderRadius:"50%",background:CB[cur.channel],display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:CC[cur.channel]}}>{initials(cur.client_name||"?")}</div>
                   <div>
-                    <div style={{fontWeight:700,fontSize:14,color:"#111"}}>{cur.client_name}</div>
+                    <div style={{fontWeight:700,fontSize:14,color:"#111"}}>{cur.client_name}{cur.channel_account&&<span style={{color:"#aaa",fontWeight:400,fontSize:12}}> ({cur.channel_account})</span>}</div>
                     <div style={{fontSize:11,color:CC[cur.channel],display:"flex",alignItems:"center",gap:3,fontWeight:600}}><ChIcon ch={cur.channel} size={11}/>{CN[cur.channel]}</div>
                   </div>
                 </div>
@@ -593,7 +824,7 @@ function MainApp({ admin, onLogout }) {
                 <div ref={msgsEnd}/>
               </div>
 
-              {b24Open&&<B24Panel conv={cur} admin={admin} workers={workers} onToast={setToast}/>}
+              {b24Open&&<B24Panel conv={cur} admin={admin} workers={workers} workersTotal={workersTotal} onRefreshWorkers={refreshWorkers} onToast={setToast}/>}
 
               {tmplOpen&&(
                 <div style={{background:"#fff",borderTop:"1px solid #e8e8ec",maxHeight:170,overflowY:"auto"}}>
@@ -617,6 +848,9 @@ function MainApp({ admin, onLogout }) {
           )}
         </div>
       )}
+
+      {/* ═══ ЗАДАЧИ (без чата) ═══ */}
+      {tab==="tasks" && <StandaloneTaskCreator admin={admin} workers={workers} workersTotal={workersTotal} onRefreshWorkers={refreshWorkers} onToast={setToast}/>}
 
       {/* ═══ ШАБЛОНЫ ═══ */}
       {tab==="templates"&&(
@@ -667,22 +901,28 @@ function MainApp({ admin, onLogout }) {
         </div>
       )}
 
-      {/* ═══ ВОРОНКА ═══ */}
+      {/* ═══ ВОРОНКА (реальные диалоги из Supabase) ═══ */}
       {tab==="funnel"&&(
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
           <div style={{background:"#fff",borderBottom:"1px solid #e8e8ec",padding:"10px 20px",display:"flex",gap:20,alignItems:"center",flexShrink:0}}>
-            <div><div style={{fontSize:11,color:"#888"}}>В работе</div><div style={{fontSize:18,fontWeight:700}}>{cards.filter(c=>c.stage!=="Завершён").length}</div></div>
+            <div><div style={{fontSize:11,color:"#888"}}>В работе</div><div style={{fontSize:18,fontWeight:700}}>{dealConvs.filter(c=>c.funnel_stage!=="Завершён").length}</div></div>
             <div style={{width:1,height:32,background:"#e8e8ec"}}/>
-            <div><div style={{fontSize:11,color:"#888"}}>Закрыто</div><div style={{fontSize:18,fontWeight:700,color:"#16a34a"}}>{cards.filter(c=>c.stage==="Завершён").length}</div></div>
+            <div><div style={{fontSize:11,color:"#888"}}>Закрыто</div><div style={{fontSize:18,fontWeight:700,color:"#16a34a"}}>{dealConvs.filter(c=>c.funnel_stage==="Завершён").length}</div></div>
             <div style={{width:1,height:32,background:"#e8e8ec"}}/>
             <div><div style={{fontSize:11,color:"#888"}}>Выручка</div><div style={{fontSize:18,fontWeight:700}}>{totalRev.toLocaleString("ru")} ₸</div></div>
+            <div style={{marginLeft:"auto",fontSize:11,color:"#aaa"}}>Заказы Kaspi падают сразу на «Оплата»</div>
           </div>
+          {dealConvs.length===0 ? (
+            <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"#aaa",fontSize:13}}>
+              Сделок пока нет. Они появятся автоматически из заказов Kaspi или когда вы закроете сделку из чата.
+            </div>
+          ) : (
           <div style={{flex:1,overflowX:"auto",overflowY:"hidden",display:"flex"}}>
             {STAGES.map(stage=>{
-              const sc=cards.filter(c=>c.stage===stage);
-              const tot=sc.reduce((a,c)=>a+parseInt(c.amount.replace(/\D/g,"")),0);
+              const sc=dealConvs.filter(c=>c.funnel_stage===stage);
+              const tot=sc.reduce((a,c)=>a+(Number(c.deal_amount||c.kaspi_order_amount)||0),0);
               return (
-                <div key={stage} onDragOver={e=>e.preventDefault()} onDrop={()=>drag&&setCards(cards.map(c=>c.id===drag?{...c,stage}:c))}
+                <div key={stage} onDragOver={e=>e.preventDefault()} onDrop={()=>drag&&moveFunnelStage(drag,stage)}
                   style={{minWidth:190,flex:1,background:"#f5f5f7",borderRight:"1px solid #e8e8ec",display:"flex",flexDirection:"column"}}>
                   <div style={{padding:"10px 12px",borderBottom:"1px solid #e8e8ec",background:"#fff",flexShrink:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:7}}>
@@ -693,20 +933,20 @@ function MainApp({ admin, onLogout }) {
                     {tot>0&&<div style={{fontSize:10,color:"#888",marginTop:2}}>{tot.toLocaleString("ru")} ₸</div>}
                   </div>
                   <div style={{flex:1,overflowY:"auto",padding:8}}>
-                    {sc.map(card=>(
-                      <div key={card.id} draggable onDragStart={()=>setDrag(card.id)} onDragEnd={()=>setDrag(null)}
+                    {sc.map(c=>(
+                      <div key={c.id} draggable onDragStart={()=>setDrag(c.id)} onDragEnd={()=>setDrag(null)}
                         style={{background:"#fff",borderRadius:10,padding:"10px 12px",marginBottom:8,border:"1px solid #eaecf0",cursor:"grab",userSelect:"none",boxShadow:"0 1px 3px rgba(0,0,0,.05)"}}>
                         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
-                          <div style={{width:28,height:28,borderRadius:"50%",background:CB[card.ch],display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:CC[card.ch],flexShrink:0}}>{card.ini}</div>
-                          <span style={{fontSize:12,fontWeight:600,color:"#111"}}>{card.name}</span>
+                          <div style={{width:28,height:28,borderRadius:"50%",background:CB[c.channel],display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:CC[c.channel],flexShrink:0}}>{initials(c.client_name||"?")}</div>
+                          <span style={{fontSize:12,fontWeight:600,color:"#111"}}>{c.client_name}</span>
                         </div>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                          <span style={{fontSize:13,fontWeight:700,color:"#111"}}>{card.amount}</span>
-                          <ChIcon ch={card.ch} size={12}/>
+                          <span style={{fontSize:13,fontWeight:700,color:"#111"}}>{(Number(c.deal_amount||c.kaspi_order_amount)||0).toLocaleString("ru")} ₸</span>
+                          <ChIcon ch={c.channel} size={12}/>
                         </div>
                         <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                           {STAGES.filter(s=>s!==stage).slice(0,2).map(s=>(
-                            <button key={s} onClick={()=>setCards(cards.map(c=>c.id===card.id?{...c,stage:s}:c))}
+                            <button key={s} onClick={()=>moveFunnelStage(c.id,s)}
                               style={{fontSize:9,color:STAGE_COLOR[s],background:`${STAGE_COLOR[s]}15`,border:`1px solid ${STAGE_COLOR[s]}44`,padding:"2px 6px",borderRadius:4,cursor:"pointer",fontWeight:600}}>→{s}</button>
                           ))}
                         </div>
@@ -717,6 +957,45 @@ function MainApp({ admin, onLogout }) {
                 </div>
               );
             })}
+          </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ КАМЕРЫ ═══ */}
+      {tab==="cameras"&&(
+        <div style={{flex:1,overflowY:"auto",padding:20}}>
+          <div style={{fontSize:17,fontWeight:700,color:"#111",marginBottom:4}}>Камеры наблюдения</div>
+          <div style={{fontSize:12,color:"#888",marginBottom:16}}>IP-камера офиса</div>
+          <div style={{background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:10,padding:"12px 16px",marginBottom:16,fontSize:12,color:"#78350f",lineHeight:1.6}}>
+            ⚠️ Камера находится в локальной сети офиса (192.168.0.210). Просмотр работает <b>только когда вы подключены к офисному Wi-Fi</b> — удалённо с другой сети картинка не загрузится, пока не настроен проброс порта или VPN.
+          </div>
+          <div style={{background:"#fff",border:"1px solid #eaecf0",borderRadius:14,padding:16,maxWidth:720}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <span style={{fontSize:13,fontWeight:600,color:"#111"}}>Камера #1 — офис</span>
+              <span style={{fontSize:10,color:"#888"}}>192.168.0.210</span>
+            </div>
+            <div style={{background:"#111",borderRadius:8,aspectRatio:"16/9",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative"}}>
+              <img
+                src="http://admin:ttmax87654321@192.168.0.210/video.mjpg"
+                alt="Камера офиса"
+                style={{width:"100%",height:"100%",objectFit:"cover"}}
+                onError={e=>{e.target.style.display="none"; e.target.nextSibling.style.display="flex";}}
+              />
+              <div style={{display:"none",position:"absolute",inset:0,flexDirection:"column",alignItems:"center",justifyContent:"center",color:"#888",fontSize:12,gap:8}}>
+                <span style={{fontSize:28}}>📷</span>
+                <span>Нет связи с камерой</span>
+                <span style={{fontSize:10,color:"#666"}}>Проверьте подключение к офисной сети</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:10}}>
+              <a href="http://192.168.0.210/" target="_blank" rel="noreferrer" style={{flex:1,textAlign:"center",padding:"8px 0",background:"#eff3ff",color:"#3d4de0",borderRadius:7,fontSize:12,fontWeight:600,textDecoration:"none"}}>
+                Открыть веб-интерфейс камеры
+              </a>
+            </div>
+          </div>
+          <div style={{fontSize:11,color:"#aaa",marginTop:14,maxWidth:720}}>
+            Путь к видеопотоку (video.mjpg) зависит от модели камеры — если изображение не появилось, узнайте точный URL потока в документации камеры и сообщите, поправим.
           </div>
         </div>
       )}
