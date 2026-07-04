@@ -617,7 +617,7 @@ function MainApp({ admin, onLogout }) {
       if (data) { setMsgs(prev=>({...prev,[convId]:data})); return; }
     }
     try {
-      const r=await fetch(`/api/conversations/messages?convId=${convId}`); const d=await r.json();
+      const r=await fetch(`/api/conversations?type=msgs&convId=${convId}`); const d=await r.json();
       if(d.data) setMsgs(prev=>({...prev,[convId]:d.data}));
     } catch{ setMsgs(prev=>({...prev,[convId]:[]})); }
   }, []);
